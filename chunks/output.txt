@@ -1,2 +1,0 @@
-This is a sample file for testing the file chunking and merging tool.
-You can add more text here to simulate a larger file.

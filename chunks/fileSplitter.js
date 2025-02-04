@@ -3,29 +3,40 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const CHUNK_SIZE = 1024 * 1024;
-
-function splitFile(filePath, outputDir) {
+function splitFile(filePath, outputDir, chunkSize = 1024 * 1024) {
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
   const fileBuffer = fs.readFileSync(filePath);
-  const chunkIndex = [];
+  const fileStats = fs.statSync(filePath);
+  const originalFileName = path.basename(filePath);
+  
+  const fileMetadata = {
+    fileName: originalFileName,
+    size: fileStats.size,
+    created: new Date().toISOString(),
+    totalChunks: Math.ceil(fileStats.size / chunkSize),
+    fileChecksum: crypto.createHash('sha256').update(fileBuffer).digest('hex'),
+    chunkSize: chunkSize,
+    mimeType: path.extname(filePath).slice(1),
+    chunks: []
+  };
+
   let chunkNumber = 0;
 
-  for (let offset = 0; offset < fileBuffer.length; offset += CHUNK_SIZE) {
-    const chunk = fileBuffer.slice(offset, offset + CHUNK_SIZE);
-    const chunkFileName = path.join(outputDir, `chunk_${chunkNumber}.dat`);
+  for (let offset = 0; offset < fileBuffer.length; offset += chunkSize) {
+    const chunk = fileBuffer.slice(offset, offset + chunkSize);
+    const chunkFileName = `chunk_${chunkNumber}.dat`;
+    const chunkPath = path.join(outputDir, chunkFileName);
 
-    fs.writeFileSync(chunkFileName, chunk);
+    fs.writeFileSync(chunkPath, chunk);
 
-    const checksum = crypto.createHash('sha256').update(chunk).digest('hex');
-    chunkIndex.push({
-      chunkNumber,
-      fileName: `chunk_${chunkNumber}.dat`,
+    fileMetadata.chunks.push({
+      index: chunkNumber,
+      fileName: chunkFileName,
       size: chunk.length,
-      checksum,
+      checksum: crypto.createHash('sha256').update(chunk).digest('hex'),
       offset
     });
 
@@ -33,10 +44,10 @@ function splitFile(filePath, outputDir) {
     chunkNumber++;
   }
 
-  const indexFile = path.join(outputDir, 'chunks.index');
-  fs.writeFileSync(indexFile, JSON.stringify(chunkIndex, null, 2));
+  const indexFile = path.join(outputDir, `${originalFileName}.index`);
+  fs.writeFileSync(indexFile, JSON.stringify(fileMetadata, null, 2));
 
-  console.log(`File split into ${chunkNumber} chunks with index file.`);
+  console.log(`File split into ${chunkNumber} chunks with index file: ${indexFile}`);
 }
 
 module.exports = { splitFile };

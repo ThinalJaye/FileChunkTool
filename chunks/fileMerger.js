@@ -2,15 +2,27 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-function mergeFiles(chunksDir, outputFilePath) {
-  const indexFile = path.join(chunksDir, 'chunks.index');
-  const chunkIndex = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+function mergeFiles(chunksDir, outputFilePath, indexFileName) {
+  const indexFile = path.join(chunksDir, indexFileName);
+  if (!fs.existsSync(indexFile)) {
+    throw new Error(`Index file not found: ${indexFile}`);
+  }
 
-  chunkIndex.sort((a, b) => a.chunkNumber - b.chunkNumber);
+  const fileMetadata = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+  const chunks = fileMetadata.chunks.sort((a, b) => a.index - b.index);
+
+  // Verify all chunks exist
+  for (const chunk of chunks) {
+    const chunkPath = path.join(chunksDir, chunk.fileName);
+    if (!fs.existsSync(chunkPath)) {
+      throw new Error(`Missing chunk file: ${chunk.fileName}`);
+    }
+  }
 
   const writeStream = fs.createWriteStream(outputFilePath);
+  const hashStream = crypto.createHash('sha256');
 
-  for (const chunk of chunkIndex) {
+  for (const chunk of chunks) {
     const chunkPath = path.join(chunksDir, chunk.fileName);
     const chunkData = fs.readFileSync(chunkPath);
 
@@ -20,11 +32,22 @@ function mergeFiles(chunksDir, outputFilePath) {
     }
 
     writeStream.write(chunkData);
-    console.log(`Merged chunk ${chunk.chunkNumber}`);
+    hashStream.update(chunkData);
+    console.log(`Merged chunk ${chunk.index}`);
   }
 
   writeStream.end();
-  console.log('File merge completed successfully');
+
+  // Verify complete file checksum
+  const finalChecksum = hashStream.digest('hex');
+  if (finalChecksum !== fileMetadata.fileChecksum) {
+    throw new Error('Final file checksum mismatch');
+  }
+
+  console.log(`File merged successfully to: ${outputFilePath}`);
+  console.log(`Original filename: ${fileMetadata.fileName}`);
+  console.log(`File size: ${fileMetadata.size} bytes`);
+  console.log(`Created: ${fileMetadata.created}`);
 }
 
 module.exports = { mergeFiles };
